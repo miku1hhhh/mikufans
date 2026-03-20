@@ -7,7 +7,7 @@ import chardet
 import time
 import re
 import threading
-from urllib.parse import quote
+import urllib.parse
 
 # 全局统计
 download_stats = {
@@ -18,9 +18,6 @@ download_stats = {
 stats_lock = threading.Lock()
 
 def fetch_wayback_data():
-    """
-    同步获取Wayback Machine数据（这部分仍使用同步requests，因为只需要一次）
-    """
     import requests
     url = "https://web.archive.org/web/timemap/json"
     params = {
@@ -44,9 +41,6 @@ def fetch_wayback_data():
         return None
 
 def detect_and_fix_encoding(content):
-    """
-    检测并修复内容编码（与原函数相同）
-    """
     detected = chardet.detect(content)
     encoding = detected['encoding'] if detected['encoding'] else 'utf-8'
     confidence = detected['confidence']
@@ -79,9 +73,6 @@ def detect_and_fix_encoding(content):
         return content.decode('utf-8', errors='ignore'), 'utf-8'
 
 def extract_encoding_from_html(html_content):
-    """
-    从HTML中提取编码声明（与原函数相同）
-    """
     encoding_patterns = [
         r'<meta[^>]*charset=["\']?([a-zA-Z0-9-]+)["\']?',
         r'<meta[^>]*content=["\'][^"\']*charset=([a-zA-Z0-9-]+)',
@@ -106,9 +97,6 @@ def extract_encoding_from_html(html_content):
     return None
 
 def detect_language(content):
-    """
-    检测内容的主要语言（与原函数相同）
-    """
     chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', content))
     japanese_chars = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff]', content))
     korean_chars = len(re.findall(r'[\uac00-\ud7a3]', content))
@@ -122,12 +110,29 @@ def detect_language(content):
         return 'unknown'
 
 async def download_snapshot(session, snapshot, index, total):
-    """
-    异步下载单个快照
-    """
     original_url = snapshot[0]
     timestamp = snapshot[2]
-    wayback_url = f"https://web.archive.org/web/{timestamp}if_/{original_url}"
+    wayback_url = f"http://web.archive.org/web/{timestamp}if_/{original_url}"
+    
+    # 解析原始URL的路径，构造保存路径
+    parsed = urllib.parse.urlparse(original_url)
+    path = parsed.path
+    # 去除开头的 '/'
+    if path.startswith('/'):
+        path = path[1:]
+    # 如果路径为空或只有根，使用 index.html
+    if not path:
+        path = 'index.html'
+    # 替换文件系统中的非法字符（简单处理）
+    safe_path = re.sub(r'[<>:"|?*]', '_', path)
+    
+    # 构建保存目录和文件路径：wayback_downloads/时间戳/路径
+    base_dir = "wayback_downloads"
+    save_dir = os.path.join(base_dir, timestamp)
+    full_path = os.path.join(save_dir, safe_path)
+    
+    # 确保目录存在
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -156,24 +161,21 @@ async def download_snapshot(session, snapshot, index, total):
             except (UnicodeDecodeError, LookupError):
                 pass
         
-        url_hash = hashlib.md5(original_url.encode()).hexdigest()[:8]
-        uid = f"{timestamp}_{url_hash}"
-        filename = f"wayback_downloads/{uid}.html"
-        
+        # 添加meta charset（如果需要）
         if '<meta charset=' not in decoded_content and 'charset=' not in decoded_content:
             if '<head>' in decoded_content:
                 decoded_content = decoded_content.replace('<head>', f'<head><meta charset="{used_encoding}">')
             else:
                 decoded_content = decoded_content.replace('<html>', f'<html><head><meta charset="{used_encoding}"></head>', 1)
         
-        # 异步写入文件（使用线程池执行同步写入，或者直接同步写入，文件IO通常很快）
-        with open(filename, 'w', encoding='utf-8') as f:
+        # 写入文件
+        with open(full_path, 'w', encoding='utf-8') as f:
             f.write(decoded_content)
         
         with stats_lock:
             download_stats['success'] += 1
         
-        return f"成功下载 ({index}/{total}): {filename} (语言: {language}, 编码: {used_encoding})"
+        return f"成功下载 ({index}/{total}): {full_path} (语言: {language}, 编码: {used_encoding})"
     
     except Exception as e:
         with stats_lock:
@@ -181,13 +183,9 @@ async def download_snapshot(session, snapshot, index, total):
         return f"下载失败 ({index}/{total}): {wayback_url}, 错误: {e}"
 
 async def download_all_snapshots_async(snapshots, max_concurrent=10):
-    """
-    异步并发下载所有快照
-    """
     os.makedirs("wayback_downloads", exist_ok=True)
     print(f"开始异步下载 {len(snapshots)} 个快照，并发数: {max_concurrent}")
     
-    # 创建连接器，限制连接池大小
     connector = aiohttp.TCPConnector(limit=max_concurrent, limit_per_host=10)
     async with aiohttp.ClientSession(connector=connector) as session:
         semaphore = asyncio.Semaphore(max_concurrent)
@@ -198,12 +196,10 @@ async def download_all_snapshots_async(snapshots, max_concurrent=10):
         
         tasks = [bounded_download(snapshot, i+1, len(snapshots)) for i, snapshot in enumerate(snapshots)]
         
-        # 使用 asyncio.as_completed 逐个获取结果
         for coro in asyncio.as_completed(tasks):
             result = await coro
             print(result)
             
-            # 每10个任务显示进度
             if (download_stats['success'] + download_stats['failed']) % 10 == 0:
                 success = download_stats['success']
                 failed = download_stats['failed']
@@ -228,7 +224,6 @@ def main():
     
     start_time = time.time()
     
-    # 分批处理，避免一次性创建过多任务导致资源问题
     batch_size = 100
     for i in range(0, len(filtered_snapshots), batch_size):
         batch = filtered_snapshots[i:i+batch_size]
@@ -236,7 +231,6 @@ def main():
         total_batches = (len(filtered_snapshots) - 1) // batch_size + 1
         print(f"\n正在下载批次 {batch_num}/{total_batches} (共 {len(batch)} 个文件)")
         
-        # 运行异步批次
         asyncio.run(download_all_snapshots_async(batch, max_concurrent=10))
         
         if i + batch_size < len(filtered_snapshots):
