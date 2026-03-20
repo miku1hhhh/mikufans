@@ -112,7 +112,7 @@ def detect_language(content):
 async def download_snapshot(session, snapshot, index, total):
     original_url = snapshot[0]
     timestamp = snapshot[2]
-    wayback_url = f"http://web.archive.org/web/{timestamp}if_/{original_url}"
+    wayback_url = f"https://web.archive.org/web/{timestamp}if_/{original_url}"
     
     # 解析原始URL的路径，构造保存路径
     parsed = urllib.parse.urlparse(original_url)
