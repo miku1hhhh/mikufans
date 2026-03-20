@@ -16,7 +16,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'   # 会自动检测 pyproject.toml 并缓存依赖
 
       - name: Install dependencies
         run: |
