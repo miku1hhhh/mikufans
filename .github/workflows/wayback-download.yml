@@ -1,9 +1,7 @@
 name: Wayback Machine Downloader (Async)
 
 on:
-  # 允许手动触发
   workflow_dispatch:
-  # 每周一凌晨2点（UTC）自动运行
   schedule:
     - cron: '0 2 * * 1'
 
@@ -18,12 +16,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+          cache: 'pip'  # 现在会正确缓存 requirements.txt 中的依赖
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests chardet aiohttp
+          pip install -r requirements.txt
 
       - name: Run download script
         run: python 1.py
