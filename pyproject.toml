@@ -1,0 +1,8 @@
+[project]
+name = "wayback-downloader"
+version = "0.1.0"
+dependencies = [
+    "requests",
+    "chardet",
+    "aiohttp",
+]
