@@ -16,12 +16,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'  # 现在会正确缓存 requirements.txt 中的依赖
+          cache: 'pip'   # 会自动检测 pyproject.toml 并缓存依赖
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests chardet aiohttp
 
       - name: Run download script
         run: python 1.py
