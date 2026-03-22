@@ -1,3 +1,4 @@
 requests
 chardet
 aiohttp
+aiohttp-retry
